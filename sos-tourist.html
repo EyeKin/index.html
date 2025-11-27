@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>SOS Tourist — High-Risk Zone</title>
+    <style>
+        :root{--bg:#0f1724;--card:#0b1220;--accent:#ff3b30;--muted:#94a3b8;--glass:rgba(255,255,255,0.04)}
+        *{box-sizing:border-box;font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial}
+        html,body{height:100%;margin:0;background:linear-gradient(180deg,#071022 0%, #071827 100%);color:#e6eef8}
+        .wrap{max-width:480px;margin:40px auto;padding:20px}
+        header{display:flex;gap:12px;align-items:center}
+        h1{font-size:20px;margin:0}
+        p.desc{margin:6px 0 18px;color:var(--muted);font-size:13px}
+        .card{background:var(--card);padding:18px;border-radius:12px;box-shadow:0 6px 18px rgba(2,6,23,0.6)}
+        label{display:block;font-size:13px;color:var(--muted);margin-bottom:8px}
+        input[type="tel"]{width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:var(--glass);color:inherit;font-size:16px}
+        .sos-wrap{display:flex;flex-direction:column;gap:12px;align-items:center;margin-top:18px}
+        .sos-btn{width:220px;height:220px;border-radius:50%;background:radial-gradient(circle at 30% 20%, #ff6b62, #ff2e2e);border:6px solid rgba(255,255,255,0.06);box-shadow:0 18px 40px rgba(255,40,40,0.18);display:flex;align-items:center;justify-content:center;font-size:56px;font-weight:700;color:white;cursor:pointer;user-select:none}
+        .mini{font-size:14px;color:var(--muted)}
+        .status{margin-top:12px;font-size:13px;color:var(--muted)}
+        /* modal */
+        .modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:linear-gradient(180deg,rgba(2,6,23,0.6),rgba(2,6,23,0.9));padding:18px}
+        .modal.show{display:flex}
+        .panel{width:100%;max-width:520px;background:linear-gradient(180deg,#071226,#081425);padding:16px;border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,0.6);color:#e6eef8}
+        .row{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px}
+        .btn{padding:10px 14px;border-radius:10px;border:0;cursor:pointer;background:rgba(255,255,255,0.03);color:inherit;font-weight:600}
+        .btn.call{background:linear-gradient(90deg,#1e3a8a,#2563eb);color:white}
+        .btn.sms{background:linear-gradient(90deg,#0f766e,#059669);color:white}
+        .small{font-size:13px;color:var(--muted)}
+        .coords{background:rgba(255,255,255,0.02);padding:10px;border-radius:8px;font-family:monospace;font-size:13px}
+        .close-x{background:transparent;border:0;color:var(--muted);font-weight:700;cursor:pointer}
+        footer{margin-top:18px;font-size:12px;color:var(--muted)}
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <header>
+            <div>
+                <h1>SOS — Tourist Safety</h1>
+                <p class="desc">Quickly share your location and call local emergency services. Works on mobile devices with call/SMS support.</p>
+            </div>
+        </header>
+
+        <div class="card" role="region" aria-label="SOS controls">
+            <label for="emergency">Emergency number (set local)</label>
+            <input id="emergency" type="tel" inputmode="tel" placeholder="e.g. 112 or 911" value="112" />
+
+            <div class="sos-wrap">
+                <div id="sos" class="sos-btn" role="button" aria-pressed="false" title="Press to raise an SOS">SOS</div>
+                <div class="mini">Long press or hold on some devices to access call options</div>
+                <div id="status" class="status small">Ready</div>
+            </div>
+
+            <footer>
+                <div class="small">Tip: Allow location access when prompted. Sharing works best on secure (HTTPS) pages and mobile browsers.</div>
+            </footer>
+        </div>
+    </div>
+
+    <div id="modal" class="modal" role="dialog" aria-modal="true" aria-hidden="true">
+        <div class="panel">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+                <strong>Emergency actions</strong>
+                <button id="close" class="close-x" aria-label="Close">✕</button>
+            </div>
+
+            <div id="info" style="margin-top:10px">
+                <div class="small">Status: <span id="actionStatus">Obtaining location…</span></div>
+                <div class="coords" id="coords">lat: — , lon: —</div>
+                <div class="small" style="margin-top:6px">Map link: <a id="maplink" href="#" target="_blank" rel="noopener" style="color:#9bdcff">—</a></div>
+            </div>
+
+            <div class="row" style="margin-top:12px">
+                <button id="callBtn" class="btn call">Call Emergency</button>
+                <button id="smsBtn" class="btn sms">Send SMS with Location</button>
+                <button id="shareBtn" class="btn">Share Location</button>
+                <button id="copyBtn" class="btn">Copy Link</button>
+            </div>
+
+            <div class="row" style="margin-top:12px">
+                <button id="serverBtn" class="btn" title="Send to configured emergency server (requires server endpoint)">Send to Server</button>
+                <div style="flex:1"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Simple client-only SOS page. Buttons use tel:/sms:/share APIs and Geolocation.
+        const sos = document.getElementById('sos');
+        const status = document.getElementById('status');
+        const modal = document.getElementById('modal');
+        const actionStatus = document.getElementById('actionStatus');
+        const coordsEl = document.getElementById('coords');
+        const maplink = document.getElementById('maplink');
+        const emergencyInput = document.getElementById('emergency');
+
+        const callBtn = document.getElementById('callBtn');
+        const smsBtn = document.getElementById('smsBtn');
+        const shareBtn = document.getElementById('shareBtn');
+        const copyBtn = document.getElementById('copyBtn');
+        const serverBtn = document.getElementById('serverBtn');
+        const closeBtn = document.getElementById('close');
+
+        let lastPosition = null;
+
+        function openModal(){
+            modal.classList.add('show');
+            modal.setAttribute('aria-hidden', 'false');
+        }
+        function closeModal(){
+            modal.classList.remove('show');
+            modal.setAttribute('aria-hidden', 'true');
+        }
+
+        function vibratePattern(){
+            if(navigator.vibrate) navigator.vibrate([200,100,200]);
+        }
+
+        function updateStatus(text){
+            status.textContent = text;
+        }
+
+        function setCoords(position){
+            lastPosition = position;
+            const lat = position.coords.latitude.toFixed(6);
+            const lon = position.coords.longitude.toFixed(6);
+            const ts = new Date(position.timestamp).toLocaleString();
+            coordsEl.textContent = `lat: ${lat} , lon: ${lon} — ${ts}`;
+            const maps = `https://www.google.com/maps/search/?api=1&query=${lat},${lon}`;
+            maplink.href = maps;
+            maplink.textContent = `Open in maps (${lat}, ${lon})`;
+            actionStatus.textContent = 'Location ready';
+        }
+
+        function onLocationError(err){
+            actionStatus.textContent = 'Location unavailable: ' + (err && err.message ? err.message : 'unknown');
+            coordsEl.textContent = 'lat: — , lon: —';
+            maplink.href = '#';
+            maplink.textContent = '—';
+        }
+
+        function fetchLocationAndShow(){
+            actionStatus.textContent = 'Requesting location…';
+            coordsEl.textContent = 'lat: — , lon: —';
+            maplink.href = '#';
+            maplink.textContent = '—';
+            const opts = {enableHighAccuracy:true,timeout:15000,maximumAge:0};
+            navigator.geolocation.getCurrentPosition(pos=>{
+                setCoords(pos);
+            }, err=>{
+                onLocationError(err);
+            }, opts);
+        }
+
+        sos.addEventListener('click', ()=>{
+            vibratePattern();
+            updateStatus('SOS triggered — opening actions');
+            openModal();
+            fetchLocationAndShow();
+        });
+
+        // Optional: long-press quick-call behavior (for touch devices)
+        let touchTimer = null;
+        sos.addEventListener('touchstart', ()=>{
+            touchTimer = setTimeout(()=>{
+                // direct call when holding for >1.2s
+                const number = (emergencyInput.value || '112').replace(/\s+/g,'');
+                window.location.href = 'tel:' + encodeURIComponent(number);
+            }, 1200);
+        });
+        sos.addEventListener('touchend', ()=>{ clearTimeout(touchTimer); });
+
+        // Buttons
+        callBtn.addEventListener('click', ()=>{
+            const number = (emergencyInput.value || '112').replace(/\s+/g,'');
+            // user gesture triggers dialer
+            window.location.href = 'tel:' + encodeURIComponent(number);
+        });
+
+        smsBtn.addEventListener('click', ()=>{
+            const number = (emergencyInput.value || '112').replace(/\s+/g,'');
+            const coordsText = lastPosition ? `${lastPosition.coords.latitude.toFixed(6)},${lastPosition.coords.longitude.toFixed(6)}` : 'Location unavailable';
+            const body = `EMERGENCY. My location: ${coordsText}. Maps: ${maplink.href === '#' ? '—' : maplink.href}`;
+            // Some platforms expect ?body=, others use &body=. This is best-effort.
+            const uri = `sms:${encodeURIComponent(number)}?body=${encodeURIComponent(body)}`;
+            window.location.href = uri;
+        });
+
+        shareBtn.addEventListener('click', async ()=>{
+            const coordsText = lastPosition ? `${lastPosition.coords.latitude.toFixed(6)},${lastPosition.coords.longitude.toFixed(6)}` : null;
+            const url = maplink.href !== '#' ? maplink.href : undefined;
+            if(navigator.share){
+                try{
+                    await navigator.share({
+                        title: 'Emergency: Need help',
+                        text: coordsText ? `I'm at ${coordsText}` : 'I need help',
+                        url
+                    });
+                }catch(e){
+                    // user cancelled or failed
+                }
+            }else{
+                actionStatus.textContent = 'Share not supported on this browser';
+            }
+        });
+
+        copyBtn.addEventListener('click', async ()=>{
+            const text = maplink.href !== '#' ? `Location: ${maplink.href}` : 'Location not available';
+            try{
+                await navigator.clipboard.writeText(text);
+                actionStatus.textContent = 'Copied to clipboard';
+            }catch(e){
+                actionStatus.textContent = 'Copy failed';
+            }
+        });
+
+        serverBtn.addEventListener('click', async ()=>{
+            // Placeholder: configure your server endpoint to receive emergency alerts.
+            // Example payload below. Replace ENDPOINT_URL before use.
+            const ENDPOINT = ''; // e.g. 'https://your-server.example.com/api/alert'
+            if(!ENDPOINT){
+                actionStatus.textContent = 'Server endpoint not configured';
+                return;
+            }
+            actionStatus.textContent = 'Sending to server…';
+            const payload = {
+                emergencyNumber: emergencyInput.value || '112',
+                position: lastPosition ? {
+                    lat: lastPosition.coords.latitude,
+                    lon: lastPosition.coords.longitude,
+                    accuracy: lastPosition.coords.accuracy,
+                    timestamp: lastPosition.timestamp
+                } : null,
+                note: 'SOS from tourist app'
+            };
+            try{
+                const res = await fetch(ENDPOINT, {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});
+                if(res.ok) actionStatus.textContent = 'Sent to server';
+                else actionStatus.textContent = 'Server error: ' + res.status;
+            }catch(e){
+                actionStatus.textContent = 'Network error';
+            }
+        });
+
+        closeBtn.addEventListener('click', closeModal);
+        modal.addEventListener('click', (e)=>{ if(e.target === modal) closeModal(); });
+
+        // Initialize status
+        updateStatus('Ready — set local emergency number and press SOS');
+    </script>
+</body>
+</html>
